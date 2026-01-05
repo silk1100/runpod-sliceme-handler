@@ -1,0 +1,11 @@
+# requirements_runpods.txt
+# Minimal dependencies for Runpods inference
+
+ultralytics==8.0.196
+torch>=2.0.0
+torchvision>=0.15.0
+opencv-python-headless==4.8.1.78
+numpy>=1.24.0
+pillow>=10.0.0
+runpod==1.5.0
+boto3==1.34.0  # ← ADD THIS for S3
