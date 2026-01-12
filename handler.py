@@ -6,6 +6,8 @@ import base64
 import os
 import torch  # ← Add this import
 from pathlib import Path
+from PIL import Image
+import io
 
 MODEL_LOCAL_PATH = Path("models/best.pt")
 
@@ -100,10 +102,10 @@ def handler(event):
         
         # Decode image
         image_bytes = base64.b64decode(image_b64)
-        
+        image = Image.open(io.BytesIO(image_bytes))
         # Run inference on GPU
         # YOLO will automatically use GPU if model is on GPU
-        results = model(image_bytes, conf=confidence, task="segment", device='cuda' if torch.cuda.is_available() else 'cpu')
+        results = model(image, conf=confidence, task="segment", device='cuda' if torch.cuda.is_available() else 'cpu')
         
         # Format results
         detections = []
