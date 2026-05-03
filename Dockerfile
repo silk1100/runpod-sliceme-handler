@@ -6,6 +6,7 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
+
 # Install YOLO-specific system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
