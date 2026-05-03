@@ -5,7 +5,8 @@ ultralytics==8.3.175
 torch>=2.7.0
 torchvision>=0.22.0
 opencv-python-headless==4.10.0.84
-numpy>=2.0.0
+# numpy>=2.0.0  # Crashes on runpods
+numpy==1.26.4 
 pillow==11.3.0
 runpod==1.8.1
 boto3==1.42.21  # ← ADD THIS for S3
