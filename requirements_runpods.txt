@@ -1,13 +1,23 @@
 # requirements_runpods.txt
 # Minimal dependencies for Runpods inference
 
+# ultralytics==8.3.175
+# torch>=2.7.0
+# torchvision>=0.22.0
+# opencv-python-headless==4.10.0.84
+# # numpy>=2.0.0  # Crashes on runpods
+# numpy==1.26.4 
+# pillow==11.3.0
+# runpod==1.8.1
+# boto3==1.42.21  # ← ADD THIS for S3
+# sahi==0.12.1
+
+
 ultralytics==8.3.175
 torch>=2.7.0
 torchvision>=0.22.0
-opencv-python-headless==4.10.0.84
-# numpy>=2.0.0  # Crashes on runpods
-numpy==1.26.4 
+# opencv is pulled by ultralytics — no need to pin separately
 pillow==11.3.0
 runpod==1.8.1
-boto3==1.42.21  # ← ADD THIS for S3
+boto3==1.42.21
 sahi==0.12.1
