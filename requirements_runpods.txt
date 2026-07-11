@@ -10,4 +10,4 @@ numpy==1.26.4
 pillow==11.3.0
 runpod==1.8.1
 boto3==1.42.21  # ← ADD THIS for S3
-sahi==0.12.2
+sahi==0.12.1
