@@ -136,10 +136,10 @@ def handler(event):
         for pred in result.object_prediction_list:
             bbox = pred.bbox.to_voc_bbox()  # [x1, y1, x2, y2]
             detection = {
-                "class_id": pred.category.id,
+                "class_id": int(red.category.id),
                 "class_name": pred.category.name,
-                "confidence": pred.score.value,
-                "bbox": bbox,
+                "confidence": float(pred.score.value),
+                "bbox": [float(x) for x in bbox],
             }
             detections.append(detection)
 
