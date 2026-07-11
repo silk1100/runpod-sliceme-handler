@@ -2,150 +2,156 @@
 """
 Local Handler Testing Script
 
-Tests your handler.py logic locally before deploying to RunPod.
-This simulates exactly what RunPod does when it receives a request.
-
+Tests the SAHI-based handler.py logic locally before deploying to RunPod.
 Usage:
-    python test_handler_locally.py /path/to/test_image.jpg
+    python test_handler_locally.py /path/to/test_image.jpg [confidence]
 """
 
 import sys
 import base64
 import json
 from pathlib import Path
+from PIL import Image
+import io
+import torch
 
-# ============================================================
-# Simulate the handler function
-# ============================================================
 
 def test_handler_with_image(image_path, confidence=0.25):
-    """
-    Test the handler function with a local image file.
-    This simulates what RunPod does.
-    """
-    print("="*60)
-    print("Local Handler Test")
-    print("="*60)
+    """Simulate the SAHI-based handler logic directly."""
+    print("=" * 60)
+    print("Local Handler Test (SAHI sliding-window)")
+    print("=" * 60)
     print(f"Image: {image_path}")
     print(f"Confidence: {confidence}")
     print()
-    
-    # Step 1: Load and encode image (simulating client)
-    print("Step 1: Encoding image to base64 (simulating client)...")
+
+    model_path = Path("models/best.pt")
+    if not model_path.exists():
+        print(f"❌ Model not found: {model_path}")
+        return None
+
+    # Step 1: Encode image (simulating client payload)
+    print("Step 1: Encoding image to base64...")
+    with open(image_path, "rb") as f:
+        image_bytes = f.read()
+    image_b64 = base64.b64encode(image_bytes).decode('utf-8')
+    print(f"✓ Encoded: {len(image_b64)} chars")
+    print()
+
+    # Step 2: Decode and prepare
+    print("Step 2: Decoding to PIL Image...")
+    image = Image.open(io.BytesIO(base64.b64decode(image_b64)))
+    print(f"✓ {image.size[0]}x{image.size[1]}, mode={image.mode}")
+    print()
+
+    # Step 3: Run SAHI sliced inference
+    print("Step 3: Running SAHI sliced inference...")
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"   Device: {device}")
+
+    from sahi import AutoDetectionModel
+    from sahi.predict import get_sliced_prediction
+
+    sahi_model = AutoDetectionModel.from_pretrained(
+        model_type='yolov8',
+        model_path=str(model_path),
+        confidence_threshold=confidence,
+        device=device,
+    )
+
+    result = get_sliced_prediction(
+        image=image,
+        detection_model=sahi_model,
+        slice_height=1024,
+        slice_width=1024,
+        overlap_height_ratio=0.2,
+        overlap_width_ratio=0.2,
+        postprocess_type='NMS',
+        postprocess_match_metric='IOS',
+    )
+
+    # Step 4: Parse detections
+    detections = []
+    for pred in result.object_prediction_list:
+        bbox = pred.bbox.to_voc_bbox()  # [x1, y1, x2, y2]
+        detections.append({
+            "class_id": pred.category.id,
+            "class_name": pred.category.name,
+            "confidence": pred.score.value,
+            "bbox": bbox,
+        })
+
+    print(f"✓ Found {len(detections)} detections")
+    print()
+
+    # Step 5: Display results
+    print("=" * 60)
+    print("Results (matches RunPod response format)")
+    print("=" * 60)
+
+    output = {
+        "success": True,
+        "detections": detections,
+        "count": len(detections),
+        "device": device,
+    }
+    print(json.dumps(output, indent=2))
+    print()
+
+    if detections:
+        from collections import Counter
+        cls_counts = Counter(d['class_name'] for d in detections)
+        print(f"✅ SUCCESS — {len(detections)} detections")
+        print(f"   Per class: {dict(cls_counts)}")
+        top = detections[0]
+        print(f"   Top: {top['class_name']} @ {top['confidence']:.1%}")
+    else:
+        print("⚠️  No detections (try lowering confidence threshold)")
+
+    return output
+
+
+def test_actual_handler():
+    """Import and call the runpods_handler.py directly."""
+    print("\n" + "=" * 60)
+    print("Testing Actual runpods_handler.py")
+    print("=" * 60)
+
     try:
-        with open(image_path, "rb") as f:
+        import runpods_handler as handler
+
+        with open(sys.argv[1], "rb") as f:
             image_bytes = f.read()
         image_b64 = base64.b64encode(image_bytes).decode('utf-8')
-        print(f"✓ Encoded: {len(image_b64)} characters")
-        print()
-    except FileNotFoundError:
-        print(f"❌ Error: Image not found: {image_path}")
-        return
-    except Exception as e:
-        print(f"❌ Error encoding image: {e}")
-        return
-    
-    # Step 2: Create RunPod event structure
-    print("Step 2: Creating RunPod event structure...")
-    event = {
-        "input": {
-            "image": image_b64,
-            "confidence": confidence
+        confidence = float(sys.argv[2]) if len(sys.argv) > 2 else 0.25
+
+        event = {
+            "input": {
+                "image": image_b64,
+                "confidence": confidence,
+                "tile_size": 1024,
+                "tile_overlap": 0.2,
+            }
         }
-    }
-    print(f"✓ Event created")
-    print()
-    
-    # Step 3: Test OLD method (raw bytes) - This will fail
-    print("Step 3: Testing OLD method (passing raw bytes to YOLO)...")
-    print("-" * 60)
-    try:
-        from ultralytics import YOLO
-        
-        # Load model
-        model = YOLO("models/best.pt")
-        
-        # Decode image
-        image_bytes_decoded = base64.b64decode(image_b64)
-        
-        # Try to pass raw bytes to YOLO (THIS WILL FAIL)
-        print("Attempting: model(raw_bytes)")
-        results = model(image_bytes_decoded, conf=confidence)
-        
-        print("❌ Unexpected: Raw bytes worked! (This shouldn't happen)")
-        
-    except Exception as e:
-        print(f"✓ Expected error: {type(e).__name__}: {str(e)[:100]}")
-        print("   This is the error you got on RunPod!")
-    
-    print()
-    
-    # Step 4: Test NEW method (PIL Image) - This will work
-    print("Step 4: Testing NEW method (converting to PIL Image)...")
-    print("-" * 60)
-    try:
-        from ultralytics import YOLO
-        from PIL import Image
-        import io
-        
-        # Load model
-        model = YOLO("models/best.pt")
-        
-        # Decode image
-        image_bytes_decoded = base64.b64decode(image_b64)
-        
-        # Convert to PIL Image (THE FIX!)
-        print("Converting bytes to PIL Image...")
-        image = Image.open(io.BytesIO(image_bytes_decoded))
-        print(f"✓ PIL Image created: {image.size[0]}x{image.size[1]} pixels, mode={image.mode}")
-        
-        # Pass PIL Image to YOLO (THIS WORKS!)
-        print("Running inference with PIL Image...")
-        results = model(image, conf=confidence)
-        
-        # Parse results
-        detections = []
-        for result in results:
-            if result.boxes is not None:
-                for box in result.boxes:
-                    detection = {
-                        "class_id": int(box.cls),
-                        "class_name": model.names[int(box.cls)],
-                        "confidence": float(box.conf),
-                        "bbox": box.xyxy[0].tolist()
-                    }
-                    detections.append(detection)
-        
-        print(f"✓ Inference complete: {len(detections)} detections found")
-        print()
-        
-        # Display results
-        print("="*60)
-        print("Results (What RunPod will return)")
-        print("="*60)
-        
-        output = {
-            "success": True,
-            "detections": detections,
-            "count": len(detections)
-        }
-        
-        print(json.dumps(output, indent=2))
-        print()
-        
-        # Summary
-        if len(detections) > 0:
-            print(f"✅ SUCCESS! Found {len(detections)} detections")
-            print(f"\nTop detection:")
-            top = detections[0]
-            print(f"  Class: {top['class_name']}")
-            print(f"  Confidence: {top['confidence']:.2%}")
-            print(f"  BBox: {top['bbox']}")
+
+        print("Calling runpods_handler.handler(event)...")
+        result = handler.handler(event)
+
+        print("\n" + "=" * 60)
+        print("Handler Response")
+        print("=" * 60)
+        print(json.dumps(result, indent=2))
+
+        if result.get("success"):
+            print(f"\n✅ Handler test passed — {result.get('count')} detections")
         else:
-            print("⚠️  No detections found (try lowering confidence threshold)")
-        
-        return output
-        
+            print(f"\n❌ Handler error: {result.get('error')}")
+
+        return result
+
+    except ImportError as e:
+        print(f"⚠️  Could not import runpods_handler.py: {e}")
+        return None
     except Exception as e:
         print(f"❌ Error: {e}")
         import traceback
@@ -153,109 +159,28 @@ def test_handler_with_image(image_path, confidence=0.25):
         return None
 
 
-def test_actual_handler():
-    """
-    Test your actual handler.py file directly.
-    This requires your handler.py to be importable.
-    """
-    print("\n" + "="*60)
-    print("Testing Actual Handler Function")
-    print("="*60)
-    
-    try:
-        # Import your handler
-        # Note: This assumes handler.py is in current directory or PYTHONPATH
-        import handler
-        
-        print("✓ Handler imported successfully")
-        print()
-        
-        # Create test event
-        with open(sys.argv[1], "rb") as f:
-            image_bytes = f.read()
-        image_b64 = base64.b64encode(image_bytes).decode('utf-8')
-        
-        event = {
-            "input": {
-                "image": image_b64,
-                "confidence": 0.25
-            }
-        }
-        
-        # Call handler
-        print("Calling handler.handler(event)...")
-        result = handler.handler(event)
-        
-        print("\n" + "="*60)
-        print("Handler Response")
-        print("="*60)
-        print(json.dumps(result, indent=2))
-        print()
-        
-        if result.get("success"):
-            print(f"✅ Handler test successful!")
-            print(f"   Detections: {result.get('count')}")
-        else:
-            print(f"❌ Handler returned error: {result.get('error')}")
-        
-        return result
-        
-    except ImportError as e:
-        print(f"⚠️  Could not import handler.py: {e}")
-        print("   This is okay - test using Method 1 instead")
-        return None
-    except Exception as e:
-        print(f"❌ Error testing handler: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
-
-
-# ============================================================
-# Main
-# ============================================================
-
 def main():
-    print("\n" + "="*60)
-    print("Handler Local Testing Tool")
-    print("="*60)
-    print()
-    
-    # Check arguments
     if len(sys.argv) < 2:
         print("Usage: python test_handler_locally.py <image_path> [confidence]")
-        print()
-        print("Example:")
-        print("  python test_handler_locally.py test_image.jpg")
-        print("  python test_handler_locally.py test_image.jpg 0.5")
+        print("  image_path   Path to an email screenshot (PNG/JPG)")
+        print("  confidence   Confidence threshold (default 0.25)")
         sys.exit(1)
-    
+
     image_path = sys.argv[1]
     confidence = float(sys.argv[2]) if len(sys.argv) > 2 else 0.25
-    
-    # Verify image exists
+
     if not Path(image_path).exists():
-        print(f"❌ Error: Image not found: {image_path}")
+        print(f"❌ Image not found: {image_path}")
         sys.exit(1)
-    
-    # Verify model exists
+
     if not Path("models/best.pt").exists():
-        print("❌ Error: Model not found at models/best.pt")
-        print("   Make sure you're running this from your project directory")
-        print("   Or download/copy your model to models/best.pt")
-        sys.exit(1)
-    
-    print("Environment:")
-    print(f"  Image: {image_path}")
-    print(f"  Model: models/best.pt")
-    print(f"  Confidence: {confidence}")
+        print("⚠️  models/best.pt not found — run with test_actual_handler() only if deployed")
+
+    print(f"Image:      {image_path}")
+    print(f"Confidence: {confidence}")
     print()
-    
-    # Test Method 1: Simulate handler logic
+
     test_handler_with_image(image_path, confidence)
-    
-    # Test Method 2: Test actual handler.py (if available)
-    print("\n")
     test_actual_handler()
 
 

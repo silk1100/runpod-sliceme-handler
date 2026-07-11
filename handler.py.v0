@@ -1,17 +1,15 @@
+# handler.py
 import runpod
 from ultralytics import YOLO
 import boto3
 import base64
 import os
-import torch
+import torch  # ← Add this import
 from pathlib import Path
 from PIL import Image
 import io
-from sahi import AutoDetectionModel
-from sahi.predict import get_sliced_prediction
 
 MODEL_LOCAL_PATH = Path("models/best.pt")
-
 
 def download_model_from_s3():
     """Download model from S3 if not already present"""
@@ -24,13 +22,13 @@ def download_model_from_s3():
     aws_key = os.environ.get("AWS_S3_KEY")
     aws_secret = os.environ.get("AWS_S3_SECRET")
     aws_region = os.environ.get("AWS_REGION", "us-east-1")
-
+    
     if not all([bucket, model_key, aws_key, aws_secret]):
         raise ValueError(
             "Missing required environment variables: "
             "AWS_S3_BUCKET, AWS_S3_MODELKEY, AWS_S3_KEY, AWS_S3_SECRET"
         )
-
+    
     os.makedirs(MODEL_LOCAL_PATH.parent, exist_ok=True)
 
     s3 = boto3.client(
@@ -71,6 +69,7 @@ download_model_from_s3()
 print(f"\nLoading YOLO model from {MODEL_LOCAL_PATH}...")
 model = YOLO(str(MODEL_LOCAL_PATH))
 
+# Explicitly move model to GPU if available
 if torch.cuda.is_available():
     model.to('cuda')
     print("✓ Model loaded on GPU")
@@ -82,17 +81,16 @@ print("Initialization complete! Ready to process requests.")
 print("=" * 60)
 
 
+
 def handler(event):
     """
-    Runpods serverless function handler.
-
-    Expects:
+    Runpods serverless function handler
+    
+    Expected input format:
     {
         "input": {
             "image": "base64_encoded_image",
-            "confidence": 0.25,
-            "tile_size": 1024,        # optional, default 1024
-            "tile_overlap": 0.2        # optional, default 0.2
+            "confidence": 0.25
         }
     }
     """
@@ -100,68 +98,59 @@ def handler(event):
         job_input = event["input"]
         image_b64 = job_input["image"]
         confidence = job_input.get("confidence", 0.25)
-        tile_size = job_input.get("tile_size", 1024)
-        tile_overlap = job_input.get("tile_overlap", 0.2)
-
-        print(f"Processing image (confidence={confidence}, tile={tile_size}, overlap={tile_overlap})")
-
+        
+        print(f"Processing image with confidence threshold: {confidence}")
+        
         # Decode image
         image_bytes = base64.b64decode(image_b64)
         image = Image.open(io.BytesIO(image_bytes))
-
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-        # Wrap YOLO model for SAHI
-        sahi_model = AutoDetectionModel.from_pretrained(
-            model_type='yolov8',
-            model_path=str(MODEL_LOCAL_PATH),
-            confidence_threshold=confidence,
-            device=device,
-        )
-
-        # SAHI sliced inference (mirrors training tiling)
-        result = get_sliced_prediction(
-            image=image,
-            detection_model=sahi_model,
-            slice_height=tile_size,
-            slice_width=tile_size,
-            overlap_height_ratio=tile_overlap,
-            overlap_width_ratio=tile_overlap,
-            postprocess_type='NMS',
-            postprocess_match_metric='IOS',
-        )
-
-        # Parse detections
+        # Run inference on GPU
+        # YOLO will automatically use GPU if model is on GPU
+        results = model(image, conf=confidence, task="segment", device='cuda' if torch.cuda.is_available() else 'cpu')
+        
+        # Format results
         detections = []
-        for pred in result.object_prediction_list:
-            bbox = pred.bbox.to_voc_bbox()  # [x1, y1, x2, y2]
-            detection = {
-                "class_id": pred.category.id,
-                "class_name": pred.category.name,
-                "confidence": pred.score.value,
-                "bbox": bbox,
-            }
-            detections.append(detection)
-
+        for result in results:
+            if result.masks is None:
+                for box in result.boxes:
+                    detection = {
+                        "class_id": int(box.cls),
+                        "class_name": model.names[int(box.cls)],
+                        "confidence": float(box.conf),
+                        "bbox": box.xyxy[0].tolist(),
+                        "mask": None
+                    }
+                    detections.append(detection)
+            else:
+                for box, mask in zip(result.boxes, result.masks):
+                    detection = {
+                        "class_id": int(box.cls),
+                        "class_name": model.names[int(box.cls)],
+                        "confidence": float(box.conf),
+                        "bbox": box.xyxy[0].tolist(),
+                        "mask": mask.xy[0].tolist() if mask else None
+                    }
+                    detections.append(detection)
+        
         print(f"✓ Inference complete: found {len(detections)} detections")
-
+        
         return {
             "success": True,
             "detections": detections,
             "count": len(detections),
-            "device": device,
+            "device": "cuda" if torch.cuda.is_available() else "cpu"
         }
-
+        
     except Exception as e:
         print(f"✗ Error during inference: {str(e)}")
         import traceback
         traceback.print_exc()
-
+        
         return {
             "success": False,
             "error": str(e),
             "count": 0,
-            "detections": [],
+            "detections": []
         }
 
 
