@@ -31,10 +31,10 @@ def download_model_from_s3():
     model_key = os.environ.get("R2_MODELKEY")
     bucket = os.environ.get("R2_BUCKET")
 
-    if not all([bucket, model_key, aws_key, aws_secret]):
+    if not all([bucket, model_key, r2_secret, r2_access_id, r2_account_id]):
         raise ValueError(
             "Missing required environment variables: "
-            "AWS_S3_BUCKET, AWS_S3_MODELKEY, AWS_S3_KEY, AWS_S3_SECRET"
+            "R2_ACCOUNT_ID, R2_ACCESS_ID, R2_SECRET, R2_BUCKET, R2_MODELKEY"
         )
 
     os.makedirs(MODEL_LOCAL_PATH.parent, exist_ok=True)
