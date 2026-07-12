@@ -19,11 +19,17 @@ def download_model_from_s3():
         print(f"Model already exists at {MODEL_LOCAL_PATH}, skipping download.")
         return
 
-    bucket = os.environ.get("AWS_S3_BUCKET")
-    model_key = os.environ.get("AWS_S3_MODELKEY")
-    aws_key = os.environ.get("AWS_S3_KEY")
-    aws_secret = os.environ.get("AWS_S3_SECRET")
-    aws_region = os.environ.get("AWS_REGION", "us-east-1")
+    # bucket = os.environ.get("AWS_S3_BUCKET")
+    # model_key = os.environ.get("AWS_S3_MODELKEY")
+    # aws_key = os.environ.get("AWS_S3_KEY")
+    # aws_secret = os.environ.get("AWS_S3_SECRET")
+    # aws_region = os.environ.get("AWS_REGION", "us-east-1")
+
+    r2_account_id = os.environ.get("R2_ACCOUNT_ID")
+    r2_access_id = os.environ.get("R2_ACCESS_ID")
+    r2_secret = os.environ.get("R2_SECRET")
+    model_key = os.environ.get("R2_MODELKEY")
+    bucket = os.environ.get("R2_BUCKET")
 
     if not all([bucket, model_key, aws_key, aws_secret]):
         raise ValueError(
@@ -33,11 +39,17 @@ def download_model_from_s3():
 
     os.makedirs(MODEL_LOCAL_PATH.parent, exist_ok=True)
 
+    # s3 = boto3.client(
+    #     "s3",
+    #     aws_access_key_id=aws_key,
+    #     aws_secret_access_key=aws_secret,
+    #     region_name=aws_region
+    # )
     s3 = boto3.client(
         "s3",
-        aws_access_key_id=aws_key,
-        aws_secret_access_key=aws_secret,
-        region_name=aws_region
+        endpoint_url=f"https://{r2_account_id}.r2.cloudflarestorage.com",
+        aws_access_key_id=r2_access_id,
+        aws_secret_access_key=r2_secret,
     )
 
     print(f"Downloading model from s3://{bucket}/{model_key} -> {MODEL_LOCAL_PATH}")
